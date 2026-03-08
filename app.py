@@ -92,8 +92,12 @@ def merge_features(gold, brent, dxy, fed):
     df = gold.merge(brent, on="Date", how="left")\
              .merge(dxy, on="Date", how="left")\
              .merge(fed, on="Date", how="left")
-    df[["Brent_Price","DXY_Price","Fed_Rate"]] = df[["Brent_Price","DXY_Price","Fed_Rate"]].ffill().bfill()
-    df[["High","Low","Open","Volume","Gold_Price"]] = df[["High","Low","Open","Volume","Gold_Price"]].interpolate()
+    # Assign each column individually — fixes ValueError in pandas 2.x+
+    for col in ["Brent_Price", "DXY_Price", "Fed_Rate"]:
+        df[col] = df[col].ffill().bfill()
+    for col in ["High", "Low", "Open", "Volume", "Gold_Price"]:
+        if col in df.columns:
+            df[col] = df[col].interpolate()
     return df.dropna(subset=["High","Low","Open","Volume"]).sort_values("Date")
 
 def next_trading_day(date):
