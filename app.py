@@ -14,25 +14,39 @@ from sklearn.metrics import mean_absolute_error, mean_absolute_percentage_error
 # -----------------------
 # DATA FETCH FUNCTIONS  (moved outside run_pipeline so they can be reused)
 # -----------------------
+def _yf_download_with_retry(ticker, start, end, retries=5, **kwargs):
+    """Download from yfinance with exponential backoff on rate limit errors."""
+    import time
+    for attempt in range(retries):
+        try:
+            df = yf.download(ticker, start=start, end=end + timedelta(days=1),
+                             interval="1d", progress=False, **kwargs)
+            if not df.empty:
+                return df
+        except Exception as e:
+            if "rate" in str(e).lower() or "429" in str(e) or "too many" in str(e).lower():
+                wait = 10 * (2 ** attempt)  # 10s, 20s, 40s, 80s, 160s
+                time.sleep(wait)
+            else:
+                raise
+    return pd.DataFrame()  # return empty if all retries exhausted
+
 def fetch_gold(start, end):
-    df = yf.download("GC=F", start=start, end=end + timedelta(days=1),
-                     interval="1d", auto_adjust=False, progress=False).dropna()
+    df = _yf_download_with_retry("GC=F", start, end, auto_adjust=False).dropna()
     df = df.reset_index()
     if isinstance(df.columns, pd.MultiIndex):
         df.columns = df.columns.get_level_values(0)
     return df[["Date","High","Low","Open","Volume","Close"]].rename(columns={"Close":"Gold_Price"})
 
 def fetch_brent(start, end):
-    df = yf.download("BZ=F", start=start, end=end + timedelta(days=1),
-                     interval="1d", progress=False, auto_adjust=False).dropna()
+    df = _yf_download_with_retry("BZ=F", start, end, auto_adjust=False).dropna()
     df = df.reset_index()
     if isinstance(df.columns, pd.MultiIndex):
         df.columns = df.columns.get_level_values(0)
     return df[["Date","Close"]].rename(columns={"Close":"Brent_Price"})
 
 def fetch_dxy(start, end):
-    df = yf.download("DX-Y.NYB", start=start, end=end + timedelta(days=1),
-                     interval="1d", auto_adjust=False, progress=False).dropna()
+    df = _yf_download_with_retry("DX-Y.NYB", start, end, auto_adjust=False).dropna()
     df = df.reset_index()
     if isinstance(df.columns, pd.MultiIndex):
         df.columns = df.columns.get_level_values(0)
