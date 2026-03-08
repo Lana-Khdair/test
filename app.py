@@ -259,45 +259,42 @@ st.title("📈 Gold Price Prediction System")
 # The manual Update button forces a re-run regardless.
 # -----------------------
 today_str = datetime.today().strftime("%Y-%m-%d")
-already_ran_today = st.session_state.get("last_run_date") == today_str
+force_update = st.button("🔄 Update")
 
-if st.button("🔄 Update") or not already_ran_today:
-    with st.spinner("Running pipeline, please wait..."):
-        df_show, predicted_price, next_date, last_trained_date, mae, mape = run_pipeline()
-    st.session_state["last_run_date"] = today_str
+# --- Check if gold_data_all.pkl was already saved TODAY ---
+# This works across all users — if any user ran it today, everyone loads from pkl
+_loaded_ok = False
+_pkl_is_today = False
+try:
+    with open("gold_data_all.pkl", "rb") as f:
+        data = pickle.load(f)
+    df_show           = data["df_show"]
+    predicted_price   = data["next_day_price"]
+    next_date         = data["prediction_date"]
+    last_trained_date = data["last_trained_date"]
+    mae               = data.get("mae",  None)
+    mape              = data.get("mape", None)
+    _loaded_ok = True
+    # Check if pkl was saved today
+    _pkl_is_today = str(last_trained_date) >= str(datetime.today().date() - timedelta(days=1))
+except Exception:
+    pass
 
-else:
-    # Pipeline already ran today — load saved results
-    _loaded_ok = False
+# Sanity check: predictions outside $1,000–$15,000 means corrupted pkl
+if _loaded_ok:
     try:
-        with open("gold_data_all.pkl", "rb") as f:
-            data = pickle.load(f)
-        df_show           = data["df_show"]
-        predicted_price   = data["next_day_price"]
-        next_date         = data["prediction_date"]
-        last_trained_date = data["last_trained_date"]
-        mae               = data.get("mae",  None)
-        mape              = data.get("mape", None)
-        _loaded_ok = True
-    except Exception:
-        pass
-
-    # Sanity check: predictions outside $1,000–$15,000 means corrupted pkl
-    if _loaded_ok:
-        try:
-            if not (1000 < data["next_day_price"] < 15000):
-                _loaded_ok = False
-        except Exception:
+        if not (1000 < data["next_day_price"] < 15000):
             _loaded_ok = False
+            _pkl_is_today = False
+    except Exception:
+        _loaded_ok = False
+        _pkl_is_today = False
 
-    if not _loaded_ok:
-        import os
-        # Only delete the data cache, not the pipeline
-        try: os.remove("gold_data_all.pkl")
-        except: pass
-        with st.spinner("Running pipeline, please wait..."):
-            df_show, predicted_price, next_date, last_trained_date, mae, mape = run_pipeline()
-        st.session_state["last_run_date"] = today_str
+# Run pipeline only if: forced by button, pkl missing/corrupt, or pkl is outdated
+if force_update or not _loaded_ok or not _pkl_is_today:
+    with st.spinner("جاري تحديث البيانات، الرجاء الانتظار..."):
+        df_show, predicted_price, next_date, last_trained_date, mae, mape = run_pipeline()
+# else: everyone loads from the pkl saved by the first user today — no Yahoo request
 
 # Show last trained date
 st.info(f"🛠️ Model last trained up to: {last_trained_date}")
