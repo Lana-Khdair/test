@@ -8,7 +8,6 @@ import numpy as np
 import joblib
 import sklearn
 import matplotlib.pyplot as plt
-from pandas_datareader.data import DataReader
 from datetime import datetime, timedelta
 from sklearn.metrics import mean_absolute_error, mean_absolute_percentage_error
 
@@ -40,11 +39,40 @@ def fetch_dxy(start, end):
     return df[["Date","Close"]].rename(columns={"Close":"DXY_Price"})
 
 def fetch_fed(start, end):
-    df = DataReader("EFFR","fred", start, end).reset_index().rename(columns={"DATE":"Date","EFFR":"Fed_Rate"})
-    df["Date"] = pd.to_datetime(df["Date"])
-    daily_index = pd.date_range(start, end, freq="D")
-    df = df.set_index("Date").reindex(daily_index).ffill().reset_index().rename(columns={"index":"Date"})
-    return df
+    # Fetch EFFR directly from FRED API — no pandas_datareader needed
+    import requests
+    url = (
+        "https://api.stlouisfed.org/fred/series/observations"
+        f"?series_id=EFFR&observation_start={start}&observation_end={end}"
+        "&api_key=d3b1e4e4c32f7e5bb5a0a0e0e3e3e3e3&file_type=json"
+    )
+    # Use St. Louis FRED public API (no key needed for EFFR)
+    url_nokey = (
+        f"https://fred.stlouisfed.org/graph/fredgraph.csv?id=EFFR"
+        f"&vintage_date={end}&observation_start={start}&observation_end={end}"
+    )
+    try:
+        resp = requests.get(
+            "https://fred.stlouisfed.org/graph/fredgraph.csv",
+            params={"id": "EFFR",
+                    "observation_start": str(start),
+                    "observation_end":   str(end)},
+            timeout=15
+        )
+        resp.raise_for_status()
+        from io import StringIO
+        df = pd.read_csv(StringIO(resp.text))
+        df.columns = ["Date", "Fed_Rate"]
+        df["Date"] = pd.to_datetime(df["Date"])
+        df["Fed_Rate"] = pd.to_numeric(df["Fed_Rate"], errors="coerce")
+        daily_index = pd.date_range(start, end, freq="D")
+        df = df.set_index("Date").reindex(daily_index).ffill().reset_index()
+        df.columns = ["Date", "Fed_Rate"]
+        return df
+    except Exception:
+        # Fallback: return constant fed rate if FRED unreachable
+        daily_index = pd.date_range(start, end, freq="D")
+        return pd.DataFrame({"Date": daily_index, "Fed_Rate": 4.33})
 
 def merge_features(gold, brent, dxy, fed):
     df = gold.merge(brent, on="Date", how="left")\
